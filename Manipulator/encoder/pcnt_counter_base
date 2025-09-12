@@ -1,0 +1,271 @@
+// encoder code in arduino framework and ESP32's PCNT counter using functions imported from ESP-IDF
+
+#include <Arduino.h>
+
+    // Edit the pins
+
+    extern "C"
+{
+#include <stdio.h>
+// #include "driver/ledc.h"
+// #include "driver/gpio.h"
+#include "driver/pcnt.h"
+#include "esp_log.h"
+#include "esp_err.h"
+}
+
+// Define constants ////////////////////////////////////////////////////////////////
+#define PCNT_HIGH_LIMIT 32000
+#define PCNT_LOW_LIMIT -32000
+
+#define ENCODER1_GPIO_A 32
+#define ENCODER1_GPIO_B 33
+
+short encodercount1; // Variable to store the current pulse count
+short count1;
+
+#define ENCODER2_GPIO_A 34
+#define ENCODER2_GPIO_B 35
+
+short encodercount2; // Variable to store the current pulse count
+short count2;
+
+#define ENCODER3_GPIO_A 36
+#define ENCODER3_GPIO_B 39
+
+short encodercount3; // Variable to store the current pulse count
+short count3;
+
+#define ENCODER4_GPIO_A 14
+#define ENCODER4_GPIO_B 15
+
+short encodercount4; // Variable to store the current pulse count
+short count4;
+
+esp_err_t pcnt_get_counter_value(pcnt_unit_t, int16_t *);
+
+#define MOTORPWM1 16
+#define MOTORDIR1 4
+
+#define MOTORPWM2 5
+#define MOTORDIR2 17
+
+#define MOTORPWM3 22
+#define MOTORDIR3 21
+
+#define MOTORPWM4 19
+#define MOTORDIR4 18
+
+void setup_pcnt()
+{
+
+  Serial.println("HHHLLOOOE I am Here");
+  // unit 0 channel 0//////////////////////////////////////////////////
+
+  pcnt_config_t pcnt_config1 = {};
+
+  pcnt_config1.pulse_gpio_num = ENCODER1_GPIO_A;
+  pcnt_config1.ctrl_gpio_num = ENCODER1_GPIO_B;
+  pcnt_config1.channel = PCNT_CHANNEL_0;
+  pcnt_config1.unit = PCNT_UNIT_0;
+
+  pcnt_config1.pos_mode = PCNT_COUNT_INC;
+  pcnt_config1.neg_mode = PCNT_COUNT_DIS;
+  pcnt_config1.lctrl_mode = PCNT_MODE_KEEP;
+  pcnt_config1.hctrl_mode = PCNT_MODE_REVERSE; // Reverse count if B is high
+  pcnt_config1.counter_h_lim = PCNT_HIGH_LIMIT;
+  pcnt_config1.counter_l_lim = PCNT_LOW_LIMIT;
+
+  // Configure PCNT unit
+  pcnt_unit_config(&pcnt_config1);
+
+  // Optional: filter out noise shorter than 1000ns
+  pcnt_set_filter_value(PCNT_UNIT_0, 100); // 100 = approx 1μs
+  pcnt_filter_enable(PCNT_UNIT_0);
+
+  // // Enable and start
+  pcnt_counter_pause(PCNT_UNIT_0);
+  pcnt_counter_clear(PCNT_UNIT_0);
+  pcnt_counter_resume(PCNT_UNIT_0);
+
+  // unit 1 channel 0///////////////////////////////////////////////
+
+  pcnt_config_t pcnt_config2 = {};
+  pcnt_config2.pulse_gpio_num = ENCODER2_GPIO_A;
+  pcnt_config2.ctrl_gpio_num = ENCODER2_GPIO_B;
+  pcnt_config2.channel = PCNT_CHANNEL_0;
+  pcnt_config2.unit = PCNT_UNIT_3;
+
+  pcnt_config2.pos_mode = PCNT_COUNT_INC;
+  pcnt_config2.neg_mode = PCNT_COUNT_DIS;
+  pcnt_config2.lctrl_mode = PCNT_MODE_KEEP;
+  pcnt_config2.hctrl_mode = PCNT_MODE_REVERSE; // Reverse count if B is high
+  pcnt_config2.counter_h_lim = PCNT_HIGH_LIMIT;
+  pcnt_config2.counter_l_lim = PCNT_LOW_LIMIT;
+
+  // Configure PCNT unit
+  pcnt_unit_config(&pcnt_config2);
+
+  // Optional: filter out noise shorter than 1000ns
+  pcnt_set_filter_value(PCNT_UNIT_3, 100); // 100 = approx 1μs
+  pcnt_filter_enable(PCNT_UNIT_3);
+
+  // // Enable and start
+  pcnt_counter_pause(PCNT_UNIT_3);
+  pcnt_counter_clear(PCNT_UNIT_3);
+  pcnt_counter_resume(PCNT_UNIT_3);
+
+  // unit 2 channel 0/////////////////////////////////////////////
+
+  pcnt_config_t pcnt_config3 = {};
+  pcnt_config3.pulse_gpio_num = ENCODER3_GPIO_A;
+  pcnt_config3.ctrl_gpio_num = ENCODER3_GPIO_B;
+  pcnt_config3.channel = PCNT_CHANNEL_0;
+  pcnt_config3.unit = PCNT_UNIT_6;
+
+  pcnt_config3.pos_mode = PCNT_COUNT_INC;
+  pcnt_config3.neg_mode = PCNT_COUNT_DIS;
+  pcnt_config3.lctrl_mode = PCNT_MODE_KEEP;
+  pcnt_config3.hctrl_mode = PCNT_MODE_REVERSE; // Reverse count if B is high
+  pcnt_config3.counter_h_lim = PCNT_HIGH_LIMIT;
+  pcnt_config3.counter_l_lim = PCNT_LOW_LIMIT;
+
+  // Configure PCNT unit
+  pcnt_unit_config(&pcnt_config3);
+
+  // Optional: filter out noise shorter than 1000ns
+  pcnt_set_filter_value(PCNT_UNIT_6, 100); // 100 = approx 1μs
+  pcnt_filter_enable(PCNT_UNIT_6);
+
+  // // Enable and start
+  pcnt_counter_pause(PCNT_UNIT_6);
+  pcnt_counter_clear(PCNT_UNIT_6);
+  pcnt_counter_resume(PCNT_UNIT_6);
+
+  // unit 3 channel 0////////////////////////////////////////
+
+  pcnt_config_t pcnt_config4 = {};
+  pcnt_config4.pulse_gpio_num = ENCODER4_GPIO_A;
+  pcnt_config4.ctrl_gpio_num = ENCODER4_GPIO_B;
+  pcnt_config4.channel = PCNT_CHANNEL_0;
+  pcnt_config4.unit = PCNT_UNIT_7;
+
+  pcnt_config4.pos_mode = PCNT_COUNT_INC;
+  pcnt_config4.neg_mode = PCNT_COUNT_DIS;
+  pcnt_config4.lctrl_mode = PCNT_MODE_KEEP;
+  pcnt_config4.hctrl_mode = PCNT_MODE_REVERSE; // Reverse count if B is high
+  pcnt_config4.counter_h_lim = PCNT_HIGH_LIMIT;
+  pcnt_config4.counter_l_lim = PCNT_LOW_LIMIT;
+
+  // Configure PCNT unit
+  pcnt_unit_config(&pcnt_config4);
+
+  // Optional: filter out noise shorter than 1000ns
+  pcnt_set_filter_value(PCNT_UNIT_7, 100); // 100 = approx 1μs
+  pcnt_filter_enable(PCNT_UNIT_7);
+
+  // // Enable and start
+  pcnt_counter_pause(PCNT_UNIT_7);
+  pcnt_counter_clear(PCNT_UNIT_7);
+  pcnt_counter_resume(PCNT_UNIT_7);
+
+  //////////////////////////////////////////////
+
+  Serial.println("Encoders (PCNT) initialized.");
+}
+
+short get_encoder_count1()
+{
+  pcnt_get_counter_value(PCNT_UNIT_0, &count1);
+  return count1;
+}
+
+short get_encoder_count2()
+{
+  
+      pcnt_get_counter_value(PCNT_UNIT_3, &count2);
+  return count2;
+}
+
+short get_encoder_count3()
+{
+  pcnt_get_counter_value(PCNT_UNIT_6, &count3);
+  return count3;
+}
+
+short get_encoder_count4()
+{
+  pcnt_get_counter_value(PCNT_UNIT_7, &count4);
+  return count4;
+}
+
+void setup()
+{
+Serial.println("HELLL SERIAL SERIAL SERIAL");
+  pinMode(MOTORDIR1, OUTPUT);
+  pinMode(MOTORPWM1, OUTPUT);
+  pinMode(ENCODER1_GPIO_A, INPUT_PULLUP);
+  pinMode(ENCODER1_GPIO_B, INPUT_PULLUP);
+
+  pinMode(MOTORDIR2, OUTPUT);
+  pinMode(MOTORPWM2, OUTPUT);
+  pinMode(ENCODER2_GPIO_A, INPUT_PULLUP);
+  pinMode(ENCODER2_GPIO_B, INPUT_PULLUP);
+
+  pinMode(MOTORDIR3, OUTPUT);
+  pinMode(MOTORPWM3, OUTPUT);
+  pinMode(ENCODER3_GPIO_A, INPUT_PULLUP);
+  pinMode(ENCODER3_GPIO_B, INPUT_PULLUP);
+
+  pinMode(MOTORDIR4, OUTPUT);
+  pinMode(MOTORPWM4, OUTPUT);
+  pinMode(ENCODER4_GPIO_A, INPUT_PULLUP);
+  pinMode(ENCODER4_GPIO_B, INPUT_PULLUP);
+
+  Serial.begin(9600); // Start serial monitor for output
+  setup_pcnt();
+
+  encodercount1 = 0;
+  encodercount2 = 0;
+  encodercount3 = 0;
+  encodercount4 = 0;
+
+  digitalWrite(MOTORDIR1, 1);
+  analogWrite(MOTORPWM1, 0);
+
+  digitalWrite(MOTORDIR2, 1);
+  analogWrite(MOTORPWM2, 0);
+
+  digitalWrite(MOTORDIR3, 1);
+  analogWrite(MOTORPWM3, 0);
+
+  digitalWrite(MOTORDIR4, 1);
+  analogWrite(MOTORPWM4, 0);
+}
+
+char choice;
+
+void loop()
+{
+
+  // while(Serial.available())
+  // {
+  //   choice = Serial.read();
+  // }
+
+  encodercount1 = get_encoder_count1();
+  encodercount2 = get_encoder_count2();
+  encodercount3 = get_encoder_count3();
+  encodercount4 = get_encoder_count4();
+
+  Serial.print("encoder 1: ");
+  Serial.print(encodercount1);
+  Serial.print("    encoder 2: ");
+  Serial.print(encodercount2);
+  Serial.print("    encoder 3: ");
+  Serial.print(encodercount3);
+  Serial.print("    encoder 4: ");
+  Serial.println(encodercount4);
+
+delay(100);
+}

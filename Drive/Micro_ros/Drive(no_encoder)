@@ -1,0 +1,194 @@
+
+// Just Drive Code without Encoder
+
+
+#include <Arduino.h>
+#include <micro_ros_platformio.h>
+#include <rcl/rcl.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <std_msgs/msg/int16.h>
+
+
+
+
+#define PWM_FREQ 5000
+#define PWM_RES 8
+
+#define DIR_FL 4
+#define PWM_FL 16
+#define CH_FL 0
+
+#define DIR_FR 17
+#define PWM_FR 5
+#define CH_FR 1
+
+#define DIR_BL 18
+#define PWM_BL 19
+#define CH_BL 2
+
+#define DIR_BR 21
+#define PWM_BR 22
+#define CH_BR 3
+
+
+int input_pwm = 0;
+int choice = 0;
+
+
+class Motor {
+  int dir_pin, pwm_pin, channel;
+
+public:
+  Motor(int dir, int pwm, int ch) : dir_pin(dir), pwm_pin(pwm), channel(ch) {
+    pinMode(dir_pin, OUTPUT);
+    ledcSetup(channel, PWM_FREQ, PWM_RES);
+    ledcAttachPin(pwm_pin, channel);
+  }
+
+  void clockwise(){ 
+    digitalWrite(dir_pin, LOW); 
+  }
+  void anticlockwise(){
+     digitalWrite(dir_pin, HIGH); 
+  }
+  void pwm(int duty){ 
+    ledcWrite(channel, duty); 
+  }
+  void stop(){ 
+    ledcWrite(channel, 0); 
+  }
+};
+
+Motor motorFL(DIR_FL, PWM_FL, CH_FL);
+Motor motorFR(DIR_FR, PWM_FR, CH_FR);
+Motor motorBL(DIR_BL, PWM_BL, CH_BL);
+Motor motorBR(DIR_BR, PWM_BR, CH_BR);
+
+//this is written instead of nodehandle in ros1
+rcl_subscription_t pwm_sub, choice_sub;
+std_msgs__msg__Int16 pwm_msg, choice_msg;
+rclc_executor_t executor;
+rclc_support_t support;
+rcl_allocator_t allocator;
+rcl_node_t node;
+
+void stop_all() {
+  motorFL.stop();
+  motorFR.stop();
+  motorBL.stop();
+  motorBR.stop();
+}
+
+void forward() {
+  motorFL.anticlockwise(); 
+  motorBL.clockwise();
+  motorFR.clockwise();     
+  motorBR.anticlockwise();
+}
+
+void backward() {
+  motorFL.clockwise();     
+  motorBL.anticlockwise();
+  motorFR.anticlockwise(); 
+  motorBR.clockwise();
+}
+
+void spotleft() {
+  motorFL.clockwise();     
+  motorBL.clockwise();
+  motorFR.clockwise();     
+  motorBR.clockwise();
+}
+
+void spotright() {
+  motorFL.anticlockwise(); 
+  motorBL.anticlockwise();
+  motorFR.anticlockwise(); 
+  motorBR.anticlockwise();
+}
+
+void apply_pwm() {
+  motorFL.pwm(input_pwm);
+  motorFR.pwm(input_pwm);
+  motorBL.pwm(input_pwm);
+  motorBR.pwm(input_pwm);
+}
+
+// callbacks
+void pwm_callback(const void *msgin) {
+  const auto *msg = (const std_msgs__msg__Int16 *)msgin;
+  input_pwm = constrain(msg->data, 0, 255);
+  apply_pwm();
+}
+
+void choice_callback(const void *msgin) {
+  const auto *msg = (const std_msgs__msg__Int16 *)msgin;
+  choice = msg->data;
+
+  switch (choice) {
+    case 1:  
+        forward();    
+        break;
+    case 2: 
+        backward();  
+        break;
+    case 3:     
+        spotleft();   
+        break;
+    case 4:    
+        spotright();  
+        break;
+    case 0:
+    default:
+      stop_all(); 
+      input_pwm = 0;
+      break;
+  }
+
+  apply_pwm();
+}
+
+//error handling not necessary ig but good practice
+#define RCCHECK(fn) { rcl_ret_t rc = fn; if (rc != RCL_RET_OK) error_loop(); }
+#define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if (rc != RCL_RET_OK) {} }
+
+void error_loop() {
+  while (1) delay(100);
+}
+
+
+void setup() {
+  //for serial comm
+  Serial.begin(115200);
+  set_microros_serial_transports(Serial);
+  delay(2000);
+
+//init node and allocating memory
+  allocator = rcl_get_default_allocator();
+  RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
+  RCCHECK(rclc_node_init_default(&node, "drive_node", "", &support));
+
+//2 sub topics
+  RCCHECK(rclc_subscription_init_default(
+    &pwm_sub, &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+    "/rover/pwm"));
+
+  RCCHECK(rclc_subscription_init_default(
+    &choice_sub, &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+    "/rover/choice"));
+
+//adding 2 subs to executor
+  RCCHECK(rclc_executor_init(&executor, &support.context, 2, &allocator));
+  RCCHECK(rclc_executor_add_subscription(&executor, &pwm_sub, &pwm_msg, &pwm_callback, ON_NEW_DATA));
+  RCCHECK(rclc_executor_add_subscription(&executor, &choice_sub, &choice_msg, &choice_callback, ON_NEW_DATA));
+}
+
+
+void loop() {
+  RCSOFTCHECK(rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10)));
+  delay(10);
+}
+

@@ -1,0 +1,287 @@
+
+// ******Serial  getting connected **************
+//  Issue was because Pins where not correct 
+#include <Arduino.h>
+#include <micro_ros_platformio.h>
+
+#include <rcl/rcl.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <std_msgs/msg/int16.h>
+//#include <TinyGPSPlus.h>
+
+#if !defined(MICRO_ROS_TRANSPORT_SERIAL)
+//#error This example is only available with serial transport.
+#endif
+
+//check sgps pin nums
+// function declaration pins need to check for the steering motor now it is same as drive 
+// defining pins
+
+// front left
+#define dir_fl 4  
+#define pwm_fl 16
+#define ch_fl 0
+
+//front right
+#define dir_fr 17
+#define pwm_fr 5
+#define ch_fr 1
+//back left
+#define dir_bl 13
+#define pwm_bl 14
+#define ch_bl 2
+
+//back right
+#define dir_br 23
+#define pwm_br 22
+#define ch_br 3
+
+
+
+
+
+int command; 
+int flag = 0;
+int choice;
+int input_pwm = 100;
+int present_angle = 0;
+int current_angle = 0;
+int target_angle = 0;
+
+
+class motor
+{
+private:
+  int dir_pin;
+  int pwm_pin;
+  int channel;
+
+public:
+  motor(int, int,int);
+  void clockwise();
+  void anticlockwise();
+  void pwm(int);
+};
+
+motor::motor(int pin1, int pin2,int ch)
+{
+  dir_pin = pin1;
+  pwm_pin = pin2;
+  channel = ch;
+  pinMode(dir_pin, OUTPUT);
+  ledcSetup(channel, 5000, 8);
+  ledcAttachPin(pwm_pin, channel);
+}
+
+// all clockwise and anticlockwise dir are assumed to be from the top 
+void motor::clockwise() 
+{
+  digitalWrite(dir_pin, LOW); // need to check its clockwise or anticlockwise
+}
+
+void motor::anticlockwise()
+{
+  digitalWrite(dir_pin, HIGH); // need to check its clockwise or anticlockwise
+}
+
+void motor::pwm(int input_pwm)
+{
+  input_pwm = constrain(input_pwm, 0, 255);
+  ledcWrite(channel, input_pwm);
+}
+
+motor motorFLS(dir_fl, pwm_fl,ch_fl);
+motor motorFRS(dir_fr, pwm_fr,ch_fr);
+motor motorBRS(dir_br, pwm_br,ch_br);
+motor motorBLS(dir_bl, pwm_bl,ch_bl);
+
+
+void done()
+{
+  motorFRS.pwm(0);
+  motorBRS.pwm(0);
+  motorFLS.pwm(0);
+  motorBLS.pwm(0);
+}
+
+void frontsteerR()
+{
+  motorFRS.clockwise();
+  motorFLS.clockwise();
+}
+
+void spotturn()
+{
+  
+  motorFRS.anticlockwise();
+  motorBRS.anticlockwise();
+  motorFLS.clockwise();//soldering opposite
+  motorBLS.clockwise();
+}
+
+void frontsteerL()
+{
+  motorFRS.anticlockwise();
+  motorFLS.clockwise();
+}
+
+void spotturnrev()
+{
+  motorFRS.clockwise();
+  motorBRS.clockwise();
+  motorFLS.anticlockwise();
+  motorBLS.anticlockwise();
+}
+
+
+
+rcl_publisher_t steerpublisher;
+rcl_subscription_t steer_sub;
+
+std_msgs__msg__Int16 steer_msg;
+std_msgs__msg__Int16 steer_state;
+
+// std_msgs__msg__Int16 steer_pwm;
+
+rclc_executor_t executor;
+rcl_timer_t timer;
+rclc_support_t support;
+rcl_allocator_t allocator;
+rcl_node_t node;
+
+
+
+void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
+  if (current_angle > target_angle)
+  {
+    steer_state.data = 0;
+  }
+   else if (current_angle < target_angle)
+   {
+    steer_state.data = 1;
+   }
+  
+  
+  rcl_publish(&steerpublisher, &steer_state, NULL);
+}
+
+
+void commandCallback(const void *msgin) {
+     // Process command
+     const auto *msg = (const std_msgs__msg__Int16 *)msgin;
+     choice = msg->data;
+
+  switch (choice)
+  {
+    case 1:
+      
+
+        target_angle = 5000;
+          break;
+      
+
+     case 2:
+        target_angle = 0;
+        break;
+    
+  }
+}
+
+
+
+//error loop
+
+#define RCCHECK(fn) { rcl_ret_t rc = fn; if (rc != RCL_RET_OK) error_loop(); }
+#define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if (rc != RCL_RET_OK) {} }
+
+void error_loop() {
+  while (1) delay(100);
+}
+
+
+void setup() {
+  // Set up the Micro-ROS transport (e.g., serial)
+  Serial.begin(115200);
+  set_microros_serial_transports(Serial);
+  delay(2000);  // Optional: wait for USB serial to settle
+
+  allocator = rcl_get_default_allocator();
+
+  RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
+  RCCHECK(rclc_node_init_default(&node, "steer_node", "", &support));
+  
+  steerpublisher = rcl_get_zero_initialized_publisher();
+  RCCHECK(rclc_publisher_init_default(
+    &steerpublisher,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+    "steer/data"));
+
+    // timer = rcl_get_zero_initialized_timer();
+    RCCHECK(rclc_timer_init_default(
+    &timer,
+    &support,
+    RCL_MS_TO_NS(1000),
+    timer_callback
+  ));
+
+
+  // Creating a Subscriber
+  RCCHECK(rclc_subscription_init_default(
+    &steer_sub, 
+    &node, 
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+  "steer/cmd"));
+  
+
+
+
+  RCCHECK(rclc_executor_init(&executor, &support.context, 2, &allocator));
+  RCCHECK(rclc_executor_add_subscription(&executor, &steer_sub, &steer_msg, &commandCallback, ON_NEW_DATA));
+  RCCHECK(rclc_executor_add_timer(&executor, &timer));
+
+}
+
+
+
+void loop()
+{
+  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+
+  present_angle = millis();
+  if (target_angle - 5 > current_angle)
+  {
+    spotturn();
+    motorFRS. pwm(input_pwm);
+    motorBRS.pwm(input_pwm);
+    motorFLS.pwm(input_pwm);
+    motorBLS.pwm(input_pwm);
+    delay(10);
+    current_angle += millis() - present_angle;
+  } else if (target_angle + 5 < current_angle)
+  {
+    spotturnrev();
+    motorFRS.pwm(input_pwm);
+    motorBRS.pwm(input_pwm);
+    motorFLS.pwm(input_pwm);
+    motorBLS.pwm(input_pwm);
+    delay(10);
+    current_angle -= millis() - present_angle;
+  } else
+  {
+    delay(10);
+    done();
+  }
+
+
+
+
+
+
+delay(10);
+
+  
+}
+
+

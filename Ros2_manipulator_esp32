@@ -1,0 +1,278 @@
+#include <Arduino.h>
+#include <micro_ros_platformio.h>
+#include <rcl/rcl.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <std_msgs/msg/int16.h>
+
+
+#define basedir 35
+#define basepwm 36
+#define LA1dir 19
+#define LA1pwm 18
+#define LA2dir 25
+#define LA2pwm 33 
+#define M1dir 32
+#define M1pwm 4
+#define beveldir 21
+#define bevelpwm 22
+#define gripperdir 26
+#define gripperpwm 27
+
+int choice = 0;
+int choice_1 = 0;
+
+// ROS2 Declaration
+rcl_node_t node;
+rcl_allocator_t allocator;
+rclc_support_t support;
+rclc_executor_t executor;
+
+rcl_subscription_t subscriber1; // /manipulator/choice
+std_msgs__msg__Int16 choice_msg;
+
+rcl_subscription_t subscriber2; // /manipulator/pwm
+std_msgs__msg__Int16 pwm_msg;
+
+int pwm=0; //pwm global has to be changed
+
+class LA {
+  private:
+    int pwm_pin;
+    int dir_pin;
+
+  public:
+    LA(int, int);
+    void assign_pwm(int);
+    void forward();
+    void backward();
+    void stop();
+};
+
+LA::LA(int DIR_PIN, int PWM_PIN) {
+  dir_pin = DIR_PIN;
+  pwm_pin = PWM_PIN;
+  pinMode(dir_pin, OUTPUT);
+  pinMode(pwm_pin, OUTPUT);
+  digitalWrite(dir_pin, LOW);
+  analogWrite(pwm_pin, 0);
+}
+
+void LA::assign_pwm(int pwm) {
+  analogWrite(pwm_pin, pwm);
+}
+
+void LA::forward() {
+  digitalWrite(dir_pin, HIGH);
+}
+
+void LA::backward() {
+  digitalWrite(dir_pin, LOW);
+}
+
+void LA::stop() {
+  digitalWrite(dir_pin, LOW);
+  analogWrite(pwm_pin, 0);
+}
+
+class motor {
+  private:
+    int pwm_pin;
+    int dir_pin;
+
+  public:
+    motor(int, int);
+    void assign_pwm(int);
+    void CW();
+    void ACW();
+    void stop();
+};
+
+motor::motor(int DIR_PIN, int PWM_PIN) {
+  dir_pin = DIR_PIN;
+  pwm_pin = PWM_PIN;
+  pinMode(dir_pin, OUTPUT);
+  pinMode(pwm_pin, OUTPUT);
+  digitalWrite(dir_pin, LOW);
+  analogWrite(pwm_pin, 0);
+}
+
+void motor::assign_pwm(int pwm) {
+  analogWrite(pwm_pin, pwm);
+}
+
+void motor::CW() { digitalWrite(dir_pin, HIGH); }
+
+void motor::ACW() { digitalWrite(dir_pin, LOW); }
+
+void motor::stop() {
+  digitalWrite(dir_pin, LOW);
+  analogWrite(pwm_pin, 0);
+}
+
+
+LA link1(LA1dir, LA1pwm);
+LA link2(LA2dir, LA2pwm);
+motor link3(M1dir, M1pwm);
+motor base(basedir, basepwm);
+motor bevel_gear(beveldir, bevelpwm);
+motor gripper(gripperdir, gripperpwm);
+
+//ros::NodeHandle nh;
+// std_msgs::msg::Int16 pwm_msg;
+// std_msgs::msg::Int16 choice_msg;
+
+// ros subscriber callbacks
+ void choiceCallback(const void *msg_1) 
+ {
+    const std_msgs__msg__Int16 *msg1 = (const std_msgs__msg__Int16*)msg_1;
+    choice = msg1->data;
+    Serial.print("Choice received: ");
+    Serial.println(choice);
+  
+    switch (choice) {                              
+    case 1:
+      link1.assign_pwm(pwm);
+      link1.forward();
+      break;
+
+    case 2:
+      link1.assign_pwm(pwm);
+      link1.backward();
+      break;
+
+    case 3:
+      link2.assign_pwm(pwm);
+      link2.forward();
+      break;                                        
+
+    case 4:
+      link2.assign_pwm(pwm);
+      link2.backward();
+      break;
+
+    case 5:
+       link3.assign_pwm(70);
+      link3.CW();
+      bevel_gear.assign_pwm(70);
+      bevel_gear.ACW();
+      break;
+
+    case 6:
+      link3.assign_pwm(70);
+      link3.ACW();
+      bevel_gear.assign_pwm(70);
+      bevel_gear.CW();
+      break;
+
+    case 7:
+      base.assign_pwm(pwm);
+      base.CW();
+      break;
+
+    case 8:
+      base.assign_pwm(pwm);
+      base.ACW();
+      break;
+
+    case 9:
+     bevel_gear.assign_pwm(70);
+      bevel_gear.CW();
+      link3.assign_pwm(70);
+      link3.CW();
+      break;
+
+    case 10:
+     bevel_gear.assign_pwm(70);
+      bevel_gear.ACW();
+      link3.assign_pwm(70);
+      link3.ACW();
+      break;
+
+    case 11:
+      gripper.assign_pwm(pwm);
+      gripper.CW();
+      break;
+
+    case 12:
+      gripper.assign_pwm(pwm);
+      gripper.ACW();
+      break;
+    case 0:
+    link1.stop();
+    link2.stop();
+    link3.stop();
+    base.stop();
+    gripper.stop();
+    bevel_gear.stop();
+    break;
+    
+
+    default:
+      link1.stop();
+      link2.stop();
+      link3.stop();
+      base.stop();
+      gripper.stop();
+      bevel_gear.stop();
+      break;
+  }
+}
+
+// void pwmCallback(const std_msgs::Int16 &msg)
+//  {
+//   pwm = msg.data;
+  
+// }
+void pwmCallback(const void *msg_2) 
+{
+    const std_msgs__msg__Int16 *msg2 = (const std_msgs__msg__Int16*)msg_2;
+    choice_1 = msg2->data;
+    pwm = constrain(choice_1, 0, 255);
+    Serial.print("PWM received: ");
+    Serial.println(pwm);
+}
+
+
+// ros::Subscriber<std_msgs::Int16> pwm_sub("/manipulator/pwm", &pwmCallback);
+// ros::Subscriber<std_msgs::Int16> choice_sub("/manipulator/choice", &choiceCallback);
+
+void setup()
+ {
+//   nh.initNode();
+//   nh.subscribe(choice_sub);
+//   nh.subscribe(pwm_sub);
+//   nh.loginfo("Arduino Node Initialized");
+ Serial.begin(115200);
+   delay(100);
+
+    set_microros_serial_transports(Serial);
+    allocator = rcl_get_default_allocator();
+
+    rclc_support_init(&support, 0, NULL, &allocator);
+    rclc_node_init_default(&node, "manipulator", "", &support);
+
+    rclc_subscription_init_default(
+        &subscriber1,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+        "/manipulator/choice"
+    );
+
+    rclc_subscription_init_default(
+        &subscriber2,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+        "/manipulator/pwm"
+    );
+
+    rclc_executor_init(&executor, &support.context, 2, &allocator);
+    rclc_executor_add_subscription(&executor, &subscriber1, &choice_msg, &choiceCallback, ON_NEW_DATA);
+    rclc_executor_add_subscription(&executor, &subscriber2, &pwm_msg, &pwmCallback, ON_NEW_DATA);
+}
+
+void loop() 
+{
+    rclc_executor_spin_some(&executor, RCL_MS_TO_NS(20));
+    vTaskDelay(pdMS_TO_TICKS(20)); // better than delay() in RTOS
+}
